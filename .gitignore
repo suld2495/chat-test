@@ -43,5 +43,6 @@ out/
 application-local.properties
 
 ### Logs ###
-logs/
+logs/*
 *.log
+!logs/.gitkeep

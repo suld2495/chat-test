@@ -39,12 +39,13 @@ POST http://localhost:8080/api/users
 Content-Type: application/json
 
 {
-  "id": "550e8400-e29b-41d4-a716-446655440000",
-  "email": "user1@example.com",
-  "nickname": "사용자1",
+  "nickname": "Tester1",
   "profileImageUrl": "https://example.com/profile.jpg"
 }
 ```
+
+- `id`와 `email` 없이 닉네임만 보내면 서버가 UUID와 `guest` 이메일을 자동 생성합니다.
+
 
 #### 사용자 조회 (ID)
 ```http
@@ -53,7 +54,7 @@ GET http://localhost:8080/api/users/550e8400-e29b-41d4-a716-446655440000
 
 #### 사용자 조회 (이메일)
 ```http
-GET http://localhost:8080/api/users/email/user1@example.com
+GET http://localhost:8080/api/users/email/tester1-1234abcd@chat.local
 ```
 
 #### 사용자 검색 (닉네임)
@@ -199,19 +200,19 @@ DELETE http://localhost:8080/api/messages/850e8400-e29b-41d4-a716-446655440003?u
 # User 1 생성
 POST /api/users
 {
-  "id": "550e8400-e29b-41d4-a716-446655440000",
-  "email": "alice@example.com",
   "nickname": "Alice"
 }
 
 # User 2 생성
 POST /api/users
 {
-  "id": "650e8400-e29b-41d4-a716-446655440001",
-  "email": "bob@example.com",
   "nickname": "Bob"
 }
 ```
+
+- 응답에 포함된 `id`와 자동 생성된 게스트 이메일을 다음 단계 요청에 사용하세요.
+
+
 
 ### 2단계: 채팅방 생성
 ```bash
@@ -264,7 +265,7 @@ PATCH /api/messages/chatroom/[채팅방ID]/read-all
 ```json
 {
   "id": "550e8400-e29b-41d4-a716-446655440000",
-  "email": "alice@example.com",
+  "email": "alice-guest@chat.local",
   "nickname": "Alice",
   "profileImageUrl": null,
   "status": "OFFLINE",
@@ -292,13 +293,14 @@ PATCH /api/messages/chatroom/[채팅방ID]/read-all
 1. **Environment 변수 설정**
    ```
    base_url: http://localhost:8080
-   user1_id: 550e8400-e29b-41d4-a716-446655440000
-   user2_id: 650e8400-e29b-41d4-a716-446655440001
+   user1_id: [User 1 응답에서 복사]
+   user2_id: [User 2 응답에서 복사]
    chatroom_id: [생성 후 입력]
    ```
 
 2. **자동으로 ID 저장**
    - Tests 탭에서 응답의 ID를 변수로 저장
+    - 같은 방식으로 `user1_id`, `user2_id`도 사용자 생성 응답에서 저장할 수 있습니다.
    ```javascript
    pm.environment.set("chatroom_id", pm.response.json().id);
    ```

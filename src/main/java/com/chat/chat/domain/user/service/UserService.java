@@ -12,6 +12,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.util.StringUtils;
 
 import java.util.List;
 import java.util.UUID;
@@ -29,31 +30,32 @@ public class UserService {
     private final UserRepository userRepository;
 
     /**
-     * 사용자 생성 (Supabase Auth 연동)
+     * 사용자 생성 (간편 닉네임 가입 지원)
      */
     @Transactional
     public UserResponse createUser(UserCreateRequest request) {
-        // 이메일 중복 검사
-        if (userRepository.existsByEmail(request.getEmail())) {
-            throw new InvalidValueException(ErrorCode.USER_ALREADY_EXISTS,
-                    "이미 존재하는 이메일입니다: " + request.getEmail());
-        }
+        UUID userId = request.getId() != null ? request.getId() : UUID.randomUUID();
+        String nickname = request.getNickname();
+        String email = resolveEmail(request, nickname);
 
-        // 닉네임 중복 검사
-        if (userRepository.existsByNickname(request.getNickname())) {
+        if (userRepository.existsByEmail(email)) {
             throw new InvalidValueException(ErrorCode.USER_ALREADY_EXISTS,
-                    "이미 존재하는 닉네임입니다: " + request.getNickname());
+                    "이미 등록된 이메일입니다: " + email);
+        }
+        if (userRepository.existsByNickname(nickname)) {
+            throw new InvalidValueException(ErrorCode.USER_ALREADY_EXISTS,
+                    "이미 사용중인 닉네임입니다: " + nickname);
         }
 
         User user = User.builder()
-                .id(request.getId()) // Supabase Auth의 user.id
-                .email(request.getEmail())
-                .nickname(request.getNickname())
+                .id(userId)
+                .email(email)
+                .nickname(nickname)
                 .profileImageUrl(request.getProfileImageUrl())
                 .build();
 
         User savedUser = userRepository.save(user);
-        log.info("✅ User created: {}", savedUser.getId());
+        log.info("👤 User created: {}", savedUser.getId());
 
         return UserResponse.from(savedUser);
     }
@@ -112,16 +114,15 @@ public class UserService {
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new EntityNotFoundException(ErrorCode.USER_NOT_FOUND));
 
-        // 닉네임 변경 시 중복 검사
         if (nickname != null && !nickname.equals(user.getNickname())) {
             if (userRepository.existsByNickname(nickname)) {
                 throw new InvalidValueException(ErrorCode.USER_ALREADY_EXISTS,
-                        "이미 존재하는 닉네임입니다: " + nickname);
+                        "이미 사용중인 닉네임입니다: " + nickname);
             }
         }
 
         user.updateProfile(nickname, profileImageUrl);
-        log.info("✅ User profile updated: {}", userId);
+        log.info("🛠️ User profile updated: {}", userId);
 
         return UserResponse.from(user);
     }
@@ -135,15 +136,33 @@ public class UserService {
                 .orElseThrow(() -> new EntityNotFoundException(ErrorCode.USER_NOT_FOUND));
 
         user.deactivate();
-        log.info("✅ User deactivated: {}", userId);
+        log.info("🛑 User deactivated: {}", userId);
     }
 
     /**
-     * 사용자 Entity 조회 (내부 사용)
+     * 내부에서 User Entity 조회
      */
     public User findUserById(UUID userId) {
         return userRepository.findById(userId)
                 .orElseThrow(() -> new EntityNotFoundException(ErrorCode.USER_NOT_FOUND,
                         "사용자를 찾을 수 없습니다: " + userId));
+    }
+
+    private String resolveEmail(UserCreateRequest request, String nickname) {
+        if (StringUtils.hasText(request.getEmail())) {
+            return request.getEmail();
+        }
+        return generateGuestEmail(nickname);
+    }
+
+    private String generateGuestEmail(String nickname) {
+        String base = StringUtils.hasText(nickname)
+                ? nickname.replaceAll("[^a-zA-Z0-9]", "").toLowerCase()
+                : "guest";
+        if (!StringUtils.hasText(base)) {
+            base = "guest";
+        }
+        String suffix = UUID.randomUUID().toString().substring(0, 8);
+        return base + "-" + suffix + "@chat.local";
     }
 }
