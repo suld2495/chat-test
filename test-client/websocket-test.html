@@ -1,0 +1,552 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WebSocket Chat Test Client</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        body {
+            background-color: #f8f9fa;
+            padding: 20px;
+        }
+        .chat-container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 10px;
+            box-shadow: 0 0 20px rgba(0,0,0,0.1);
+        }
+        .connection-status {
+            padding: 15px;
+            border-bottom: 1px solid #dee2e6;
+        }
+        .status-connected {
+            color: #28a745;
+        }
+        .status-disconnected {
+            color: #dc3545;
+        }
+        .chat-area {
+            display: flex;
+            height: 600px;
+        }
+        .room-list {
+            width: 250px;
+            border-right: 1px solid #dee2e6;
+            overflow-y: auto;
+        }
+        .room-item {
+            padding: 15px;
+            cursor: pointer;
+            border-bottom: 1px solid #f0f0f0;
+            transition: background-color 0.2s;
+        }
+        .room-item:hover {
+            background-color: #f8f9fa;
+        }
+        .room-item.active {
+            background-color: #e3f2fd;
+            border-left: 3px solid #2196f3;
+        }
+        .messages-area {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+        }
+        .messages-container {
+            flex: 1;
+            overflow-y: auto;
+            padding: 20px;
+            background-color: #fafafa;
+        }
+        .message {
+            margin-bottom: 15px;
+            padding: 10px 15px;
+            border-radius: 8px;
+            max-width: 70%;
+        }
+        .message-mine {
+            background-color: #dcf8c6;
+            margin-left: auto;
+            text-align: right;
+        }
+        .message-other {
+            background-color: white;
+            margin-right: auto;
+        }
+        .message-system {
+            background-color: #fff3cd;
+            margin: 10px auto;
+            text-align: center;
+            max-width: 50%;
+            font-style: italic;
+        }
+        .message-sender {
+            font-weight: bold;
+            margin-bottom: 5px;
+            font-size: 0.9em;
+            color: #555;
+        }
+        .message-time {
+            font-size: 0.75em;
+            color: #888;
+            margin-top: 5px;
+        }
+        .typing-indicator {
+            padding: 10px 20px;
+            font-style: italic;
+            color: #666;
+            background-color: #f0f0f0;
+            border-top: 1px solid #dee2e6;
+            min-height: 50px;
+        }
+        .input-area {
+            padding: 15px;
+            border-top: 1px solid #dee2e6;
+        }
+        .connection-info {
+            background-color: #e7f3ff;
+            padding: 15px;
+            border-radius: 5px;
+            margin-bottom: 20px;
+        }
+        .log-area {
+            max-height: 200px;
+            overflow-y: auto;
+            background-color: #f8f9fa;
+            padding: 10px;
+            border-radius: 5px;
+            font-family: monospace;
+            font-size: 0.85em;
+        }
+        .log-entry {
+            margin-bottom: 5px;
+        }
+        .log-info {
+            color: #0066cc;
+        }
+        .log-success {
+            color: #28a745;
+        }
+        .log-error {
+            color: #dc3545;
+        }
+    </style>
+</head>
+<body>
+    <div class="chat-container">
+        <!-- Connection Status -->
+        <div class="connection-status">
+            <div class="d-flex justify-content-between align-items-center">
+                <h4 class="mb-0">WebSocket Chat Test Client</h4>
+                <span id="connectionStatus" class="status-disconnected">● Disconnected</span>
+            </div>
+        </div>
+
+        <!-- Connection Configuration -->
+        <div class="connection-info">
+            <h5>Connection Settings</h5>
+            <div class="row g-3">
+                <div class="col-md-4">
+                    <label class="form-label">WebSocket URL</label>
+                    <input type="text" class="form-control" id="wsUrl" value="http://localhost:8080/ws-chat">
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label">User ID (UUID)</label>
+                    <input type="text" class="form-control" id="userId" placeholder="00000000-0000-0000-0000-000000000001">
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label">Nickname</label>
+                    <input type="text" class="form-control" id="userNickname" placeholder="사용자1">
+                </div>
+                <div class="col-md-2 d-flex align-items-end">
+                    <button class="btn btn-primary w-100" id="connectBtn" onclick="connect()">Connect</button>
+                    <button class="btn btn-danger w-100 d-none" id="disconnectBtn" onclick="disconnect()">Disconnect</button>
+                </div>
+            </div>
+
+            <!-- Room Selection -->
+            <div class="row g-3 mt-2">
+                <div class="col-md-6">
+                    <label class="form-label">Chat Room ID (UUID)</label>
+                    <input type="text" class="form-control" id="chatRoomId" placeholder="00000000-0000-0000-0000-000000000100">
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label">Other User ID</label>
+                    <input type="text" class="form-control" id="otherUserId" placeholder="00000000-0000-0000-0000-000000000002">
+                </div>
+                <div class="col-md-3 d-flex align-items-end">
+                    <button class="btn btn-success w-100" id="joinRoomBtn" onclick="joinRoom()" disabled>Join Room</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Chat Area -->
+        <div class="chat-area">
+            <!-- Room List (placeholder for future enhancement) -->
+            <div class="room-list">
+                <div class="p-3 border-bottom">
+                    <h6 class="mb-0">Chat Rooms</h6>
+                </div>
+                <div id="roomList">
+                    <div class="p-3 text-muted text-center">
+                        No rooms joined yet
+                    </div>
+                </div>
+            </div>
+
+            <!-- Messages Area -->
+            <div class="messages-area">
+                <div class="messages-container" id="messagesContainer">
+                    <div class="text-center text-muted mt-5">
+                        <p>Connect and join a room to start chatting</p>
+                    </div>
+                </div>
+
+                <!-- Typing Indicator -->
+                <div class="typing-indicator" id="typingIndicator"></div>
+
+                <!-- Input Area -->
+                <div class="input-area">
+                    <div class="row g-2">
+                        <div class="col">
+                            <input type="text" class="form-control" id="messageInput"
+                                   placeholder="Type a message..."
+                                   onkeypress="handleKeyPress(event)"
+                                   oninput="handleTyping()"
+                                   disabled>
+                        </div>
+                        <div class="col-auto">
+                            <button class="btn btn-primary" onclick="sendMessage()" id="sendBtn" disabled>Send</button>
+                        </div>
+                        <div class="col-auto">
+                            <button class="btn btn-secondary" onclick="sendReadReceipt()" id="readBtn" disabled>Mark as Read</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Event Log -->
+        <div class="p-3">
+            <h6>Event Log</h6>
+            <div class="log-area" id="logArea"></div>
+        </div>
+    </div>
+
+    <!-- SockJS and STOMP libraries -->
+    <script src="https://cdn.jsdelivr.net/npm/sockjs-client@1.6.1/dist/sockjs.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@stomp/stompjs@7.0.0/bundles/stomp.umd.min.js"></script>
+
+    <script>
+        let stompClient = null;
+        let currentRoomId = null;
+        let currentUserId = null;
+        let currentNickname = null;
+        let typingTimeout = null;
+        let isTyping = false;
+
+        function log(message, type = 'info') {
+            const logArea = document.getElementById('logArea');
+            const timestamp = new Date().toLocaleTimeString();
+            const logEntry = document.createElement('div');
+            logEntry.className = `log-entry log-${type}`;
+            logEntry.textContent = `[${timestamp}] ${message}`;
+            logArea.appendChild(logEntry);
+            logArea.scrollTop = logArea.scrollHeight;
+        }
+
+        function connect() {
+            const wsUrl = document.getElementById('wsUrl').value;
+            const userId = document.getElementById('userId').value;
+            const nickname = document.getElementById('userNickname').value;
+
+            if (!userId || !nickname) {
+                alert('Please enter User ID and Nickname');
+                return;
+            }
+
+            currentUserId = userId;
+            currentNickname = nickname;
+
+            log('Connecting to ' + wsUrl, 'info');
+
+            const socket = new SockJS(wsUrl);
+            stompClient = Stomp.over(socket);
+
+            stompClient.connect({}, function(frame) {
+                log('Connected: ' + frame, 'success');
+                updateConnectionStatus(true);
+                document.getElementById('joinRoomBtn').disabled = false;
+            }, function(error) {
+                log('Connection error: ' + error, 'error');
+                updateConnectionStatus(false);
+            });
+        }
+
+        function disconnect() {
+            if (stompClient !== null) {
+                if (currentRoomId) {
+                    sendLeaveMessage();
+                }
+                stompClient.disconnect();
+                log('Disconnected', 'info');
+            }
+            updateConnectionStatus(false);
+            document.getElementById('joinRoomBtn').disabled = true;
+            currentRoomId = null;
+        }
+
+        function joinRoom() {
+            const roomId = document.getElementById('chatRoomId').value;
+
+            if (!roomId) {
+                alert('Please enter Chat Room ID');
+                return;
+            }
+
+            if (currentRoomId === roomId) {
+                log('Already in this room', 'info');
+                return;
+            }
+
+            // Leave previous room if exists
+            if (currentRoomId) {
+                sendLeaveMessage();
+                stompClient.unsubscribe('/topic/chatroom/' + currentRoomId);
+                stompClient.unsubscribe('/topic/chatroom/' + currentRoomId + '/typing');
+            }
+
+            currentRoomId = roomId;
+
+            // Subscribe to chat room
+            stompClient.subscribe('/topic/chatroom/' + roomId, function(message) {
+                handleIncomingMessage(JSON.parse(message.body));
+            });
+
+            // Subscribe to typing notifications
+            stompClient.subscribe('/topic/chatroom/' + roomId + '/typing', function(message) {
+                handleTypingNotification(JSON.parse(message.body));
+            });
+
+            log('Joined room: ' + roomId, 'success');
+
+            // Send join message
+            sendJoinMessage();
+
+            // Enable input
+            document.getElementById('messageInput').disabled = false;
+            document.getElementById('sendBtn').disabled = false;
+            document.getElementById('readBtn').disabled = false;
+
+            // Clear messages
+            document.getElementById('messagesContainer').innerHTML = '';
+        }
+
+        function sendMessage() {
+            const messageInput = document.getElementById('messageInput');
+            const content = messageInput.value.trim();
+
+            if (!content || !currentRoomId) {
+                return;
+            }
+
+            const chatMessage = {
+                chatRoomId: currentRoomId,
+                senderId: currentUserId,
+                senderNickname: currentNickname,
+                content: content,
+                messageType: 'TEXT',
+                chatMessageType: 'CHAT'
+            };
+
+            stompClient.send('/app/chat/' + currentRoomId, {}, JSON.stringify(chatMessage));
+
+            log('Message sent: ' + content, 'info');
+            messageInput.value = '';
+
+            // Stop typing indicator
+            if (isTyping) {
+                sendTypingNotification(false);
+                isTyping = false;
+            }
+        }
+
+        function sendJoinMessage() {
+            const joinMessage = {
+                chatRoomId: currentRoomId,
+                senderId: currentUserId,
+                senderNickname: currentNickname,
+                chatMessageType: 'JOIN'
+            };
+
+            stompClient.send('/app/chat/' + currentRoomId, {}, JSON.stringify(joinMessage));
+            log('Join message sent', 'info');
+        }
+
+        function sendLeaveMessage() {
+            if (!currentRoomId) return;
+
+            const leaveMessage = {
+                chatRoomId: currentRoomId,
+                senderId: currentUserId,
+                senderNickname: currentNickname,
+                chatMessageType: 'LEAVE'
+            };
+
+            stompClient.send('/app/chat/' + currentRoomId, {}, JSON.stringify(leaveMessage));
+            log('Leave message sent', 'info');
+        }
+
+        function sendReadReceipt() {
+            if (!currentRoomId) return;
+
+            const readMessage = {
+                chatRoomId: currentRoomId,
+                senderId: currentUserId,
+                chatMessageType: 'READ'
+            };
+
+            stompClient.send('/app/chat/' + currentRoomId, {}, JSON.stringify(readMessage));
+            log('Read receipt sent', 'success');
+        }
+
+        function handleTyping() {
+            if (!currentRoomId || !stompClient) return;
+
+            // Clear existing timeout
+            if (typingTimeout) {
+                clearTimeout(typingTimeout);
+            }
+
+            // Send typing start if not already typing
+            if (!isTyping) {
+                sendTypingNotification(true);
+                isTyping = true;
+            }
+
+            // Set timeout to send typing stop
+            typingTimeout = setTimeout(() => {
+                sendTypingNotification(false);
+                isTyping = false;
+            }, 2000);
+        }
+
+        function sendTypingNotification(isTyping) {
+            if (!currentRoomId) return;
+
+            const typingNotification = {
+                chatRoomId: currentRoomId,
+                userId: currentUserId,
+                nickname: currentNickname,
+                isTyping: isTyping
+            };
+
+            stompClient.send('/app/typing/' + currentRoomId, {}, JSON.stringify(typingNotification));
+        }
+
+        function handleTypingNotification(notification) {
+            const typingIndicator = document.getElementById('typingIndicator');
+
+            // Don't show own typing indicator
+            if (notification.userId === currentUserId) {
+                return;
+            }
+
+            if (notification.isTyping) {
+                typingIndicator.textContent = `${notification.nickname} is typing...`;
+            } else {
+                typingIndicator.textContent = '';
+            }
+        }
+
+        function handleIncomingMessage(message) {
+            log('Received: ' + message.chatMessageType, 'info');
+
+            const messagesContainer = document.getElementById('messagesContainer');
+            const messageDiv = document.createElement('div');
+
+            switch(message.chatMessageType) {
+                case 'CHAT':
+                    const isMine = message.senderId === currentUserId;
+                    messageDiv.className = 'message ' + (isMine ? 'message-mine' : 'message-other');
+
+                    if (!isMine) {
+                        const senderDiv = document.createElement('div');
+                        senderDiv.className = 'message-sender';
+                        senderDiv.textContent = message.senderNickname;
+                        messageDiv.appendChild(senderDiv);
+                    }
+
+                    const contentDiv = document.createElement('div');
+                    contentDiv.textContent = message.content;
+                    messageDiv.appendChild(contentDiv);
+
+                    const timeDiv = document.createElement('div');
+                    timeDiv.className = 'message-time';
+                    timeDiv.textContent = message.timestamp || new Date().toLocaleTimeString();
+                    messageDiv.appendChild(timeDiv);
+                    break;
+
+                case 'JOIN':
+                case 'LEAVE':
+                    messageDiv.className = 'message message-system';
+                    messageDiv.textContent = message.content;
+                    break;
+
+                case 'READ':
+                    log('User ' + message.senderId + ' read messages', 'info');
+                    // Could update message read status in UI
+                    return; // Don't display READ messages
+            }
+
+            messagesContainer.appendChild(messageDiv);
+            messagesContainer.scrollTop = messagesContainer.scrollHeight;
+        }
+
+        function handleKeyPress(event) {
+            if (event.key === 'Enter') {
+                sendMessage();
+            }
+        }
+
+        function updateConnectionStatus(connected) {
+            const statusElement = document.getElementById('connectionStatus');
+            const connectBtn = document.getElementById('connectBtn');
+            const disconnectBtn = document.getElementById('disconnectBtn');
+
+            if (connected) {
+                statusElement.textContent = '● Connected';
+                statusElement.className = 'status-connected';
+                connectBtn.classList.add('d-none');
+                disconnectBtn.classList.remove('d-none');
+            } else {
+                statusElement.textContent = '● Disconnected';
+                statusElement.className = 'status-disconnected';
+                connectBtn.classList.remove('d-none');
+                disconnectBtn.classList.add('d-none');
+                document.getElementById('messageInput').disabled = true;
+                document.getElementById('sendBtn').disabled = true;
+                document.getElementById('readBtn').disabled = true;
+            }
+        }
+
+        // Generate random UUIDs for testing
+        function generateUUID() {
+            return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+                var r = Math.random() * 16 | 0, v = c == 'x' ? r : (r & 0x3 | 0x8);
+                return v.toString(16);
+            });
+        }
+
+        // Initialize with random UUIDs on load
+        window.onload = function() {
+            document.getElementById('userId').value = generateUUID();
+            document.getElementById('chatRoomId').value = generateUUID();
+            document.getElementById('otherUserId').value = generateUUID();
+            log('Test client initialized', 'success');
+        };
+    </script>
+</body>
+</html>
