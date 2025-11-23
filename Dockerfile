@@ -37,6 +37,9 @@ COPY --from=builder /app/build/libs/*.jar app.jar
 # Change ownership to non-root user
 RUN chown spring:spring app.jar
 
+# Prepare writable log directory for Logback
+RUN mkdir -p /app/logs && chown -R spring:spring /app/logs
+
 # Switch to non-root user
 USER spring:spring
 
