@@ -30,31 +30,25 @@ public class ChatRoomService {
     private final UserService userService;
 
     /**
-     * 채팅방 생성 또는 기존 채팅방 조회
+     * 채팅방 생성 (사용자 + 전용 챗봇)
      */
     @Transactional
-    public ChatRoomResponse createOrGetChatRoom(UUID user1Id, UUID user2Id) {
-        // 자기 자신과의 채팅방 생성 방지
-        if (user1Id.equals(user2Id)) {
+    public ChatRoomResponse createChatRoom(UUID userId) {
+        if (userId == null) {
             throw new InvalidValueException(ErrorCode.INVALID_INPUT_VALUE,
-                    "자기 자신과는 채팅할 수 없습니다.");
+                    "userId는 필수입니다.");
         }
 
-        User user1 = userService.findUserById(user1Id);
-        User user2 = userService.findUserById(user2Id);
+        User user = userService.findUserById(userId);
+        User botUser = userService.createBotUserForChatRoom();
 
-        // 기존 채팅방 존재 여부 확인
-        return chatRoomRepository.findByUsers(user1, user2)
-                .map(chatRoom -> {
-                    log.info("✅ Existing chat room found: {}", chatRoom.getId());
-                    return ChatRoomResponse.from(chatRoom);
-                })
-                .orElseGet(() -> {
-                    ChatRoom newChatRoom = ChatRoom.create(user1, user2);
-                    ChatRoom savedChatRoom = chatRoomRepository.save(newChatRoom);
-                    log.info("✅ New chat room created: {}", savedChatRoom.getId());
-                    return ChatRoomResponse.from(savedChatRoom);
-                });
+        ChatRoom newChatRoom = ChatRoom.create(user, botUser);
+        ChatRoom savedChatRoom = chatRoomRepository.save(newChatRoom);
+
+        log.info("[BOT] New chat room created with dedicated bot: {} (botUserId={})",
+                savedChatRoom.getId(), botUser.getId());
+
+        return ChatRoomResponse.from(savedChatRoom);
     }
 
     /**
@@ -110,7 +104,7 @@ public class ChatRoomService {
         }
 
         chatRoom.resetUnreadCount(userId);
-        log.info("✅ Unread count reset: chatRoom={}, user={}", chatRoomId, userId);
+        log.info("Unread count reset: chatRoom={}, user={}", chatRoomId, userId);
     }
 
     /**
@@ -122,7 +116,7 @@ public class ChatRoomService {
                 .orElseThrow(() -> new EntityNotFoundException(ErrorCode.CHAT_ROOM_NOT_FOUND));
 
         chatRoom.updateLastMessage(message, senderId);
-        log.info("✅ Last message updated: chatRoom={}", chatRoomId);
+        log.info("Last message updated: chatRoom={}", chatRoomId);
     }
 
     /**

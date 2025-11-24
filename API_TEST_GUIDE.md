@@ -7,6 +7,8 @@
 ```
 
 서버 주소: `http://localhost:8080`
+- Claude 연동: .env에 CLAUDE_API_KEY=를 설정해야 챗봇 응답이 동작합니다. (기본 timeout 10초, 모델 claude-3-5-sonnet-20240620)
+- 토큰 한도: 채팅방별 claude.token-limit-per-room(기본 2000토큰)을 초과하면 챗봇이 더 이상 응답하지 않고 한도 초과 안내 시스템 메시지를 보냅니다.
 
 ---
 
@@ -88,16 +90,18 @@ Content-Type: application/json
 
 ### 3. ChatRoom API
 
-#### 채팅방 생성 또는 조회
+#### 채팅방 생성 (사용자 + 전용 챗봇)
 ```http
 POST http://localhost:8080/api/chatrooms
 Content-Type: application/json
 
 {
-  "user1Id": "550e8400-e29b-41d4-a716-446655440000",
-  "user2Id": "650e8400-e29b-41d4-a716-446655440001"
+  "userId": "550e8400-e29b-41d4-a716-446655440000"
 }
 ```
+
+- `userId`는 대화 참여자인 사용자 ID 하나만 전달합니다.
+- 서버가 `chat.bot-nickname` 설정을 사용해 **채팅방 전용 봇 계정**을 새로 만들고, 매 호출마다 새로운 챗봇 방을 생성합니다. 봇 이메일은 `bot-{UUID}@{도메인}`으로 자동 생성되며, 도메인은 `chat.bot-email`의 도메인 부분(`@` 이후, 기본 `chat.local`)을 사용합니다.
 
 #### 채팅방 조회 (ID)
 ```http
@@ -197,20 +201,15 @@ DELETE http://localhost:8080/api/messages/850e8400-e29b-41d4-a716-446655440003?u
 
 ### 1단계: 사용자 생성
 ```bash
-# User 1 생성
+# 사용자 생성 (봇은 자동 처리)
 POST /api/users
 {
   "nickname": "Alice"
 }
-
-# User 2 생성
-POST /api/users
-{
-  "nickname": "Bob"
-}
 ```
 
-- 응답에 포함된 `id`와 자동 생성된 게스트 이메일을 다음 단계 요청에 사용하세요.
+- 응답에 포함된 `id`(사용자 ID)를 다음 단계 요청에 사용하세요.
+- 봇 계정은 `chat.bot-nickname` 설정을 기반으로 **채팅방마다 새로 생성**됩니다. `chat.bot-email`은 봇 이메일 도메인 결정에만 사용됩니다.
 
 
 
@@ -218,29 +217,22 @@ POST /api/users
 ```bash
 POST /api/chatrooms
 {
-  "user1Id": "550e8400-e29b-41d4-a716-446655440000",
-  "user2Id": "650e8400-e29b-41d4-a716-446655440001"
+  "userId": "550e8400-e29b-41d4-a716-446655440000"
 }
 
 # 응답에서 chatRoomId 확인
 ```
 
+- 같은 사용자라도 매 호출마다 새로운 챗봇 방을 만들 수 있습니다.
+
 ### 3단계: 메시지 전송
 ```bash
-# Alice가 메시지 전송
+# 사용자가 메시지 전송
 POST /api/messages
 {
   "chatRoomId": "[채팅방ID]",
   "senderId": "550e8400-e29b-41d4-a716-446655440000",
-  "content": "안녕 Bob!"
-}
-
-# Bob이 메시지 전송
-POST /api/messages
-{
-  "chatRoomId": "[채팅방ID]",
-  "senderId": "650e8400-e29b-41d4-a716-446655440001",
-  "content": "안녕 Alice!"
+  "content": "안녕 챗봇!"
 }
 ```
 
@@ -253,7 +245,7 @@ GET /api/messages/chatroom/[채팅방ID]?userId=550e8400-e29b-41d4-a716-44665544
 ```bash
 PATCH /api/messages/chatroom/[채팅방ID]/read-all
 {
-  "userId": "650e8400-e29b-41d4-a716-446655440001"
+  "userId": "550e8400-e29b-41d4-a716-446655440000"
 }
 ```
 
@@ -293,14 +285,15 @@ PATCH /api/messages/chatroom/[채팅방ID]/read-all
 1. **Environment 변수 설정**
    ```
    base_url: http://localhost:8080
-   user1_id: [User 1 응답에서 복사]
-   user2_id: [User 2 응답에서 복사]
+   user_id: [사용자 생성 응답에서 복사]
    chatroom_id: [생성 후 입력]
+   chat_bot_email: [선택] ai-bot@chat.local (도메인 부분만 사용)
+   chat_bot_nickname: [선택] AI Bot
    ```
 
 2. **자동으로 ID 저장**
    - Tests 탭에서 응답의 ID를 변수로 저장
-    - 같은 방식으로 `user1_id`, `user2_id`도 사용자 생성 응답에서 저장할 수 있습니다.
+    - 같은 방식으로 `user_id`도 사용자 생성 응답에서 저장할 수 있습니다.
    ```javascript
    pm.environment.set("chatroom_id", pm.response.json().id);
    ```
@@ -317,3 +310,5 @@ PATCH /api/messages/chatroom/[채팅방ID]/read-all
 - [ ] 메시지 조회 및 페이징
 - [ ] 읽음 처리
 - [ ] 에러 핸들링 확인
+
+

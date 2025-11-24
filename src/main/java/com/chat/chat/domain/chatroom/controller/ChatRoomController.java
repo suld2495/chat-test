@@ -24,16 +24,15 @@ public class ChatRoomController {
     private final ChatRoomService chatRoomService;
 
     /**
-     * 채팅방 생성 또는 기존 채팅방 조회
+     * 채팅방 생성 (사용자 + 전용 챗봇)
      */
     @PostMapping
-    public ResponseEntity<ChatRoomResponse> createOrGetChatRoom(@RequestBody Map<String, UUID> request) {
-        UUID user1Id = request.get("user1Id");
-        UUID user2Id = request.get("user2Id");
+    public ResponseEntity<ChatRoomResponse> createChatRoom(@RequestBody Map<String, UUID> request) {
+        UUID userId = request.get("userId");
 
-        log.info("📥 POST /api/chatrooms - Create or get chat room: user1={}, user2={}", user1Id, user2Id);
+        log.info("POST /api/chatrooms - Create chat room with dedicated bot: user={}", userId);
 
-        ChatRoomResponse response = chatRoomService.createOrGetChatRoom(user1Id, user2Id);
+        ChatRoomResponse response = chatRoomService.createChatRoom(userId);
         return ResponseEntity.status(HttpStatus.CREATED).body(response);
     }
 
@@ -42,7 +41,7 @@ public class ChatRoomController {
      */
     @GetMapping("/{chatRoomId}")
     public ResponseEntity<ChatRoomResponse> getChatRoomById(@PathVariable UUID chatRoomId) {
-        log.info("📥 GET /api/chatrooms/{} - Get chat room by ID", chatRoomId);
+        log.info("GET /api/chatrooms/{} - Get chat room by ID", chatRoomId);
         ChatRoomResponse response = chatRoomService.getChatRoomById(chatRoomId);
         return ResponseEntity.ok(response);
     }
@@ -52,7 +51,7 @@ public class ChatRoomController {
      */
     @GetMapping("/user/{userId}")
     public ResponseEntity<List<ChatRoomResponse>> getUserChatRooms(@PathVariable UUID userId) {
-        log.info("📥 GET /api/chatrooms/user/{} - Get user's chat rooms", userId);
+        log.info("GET /api/chatrooms/user/{} - Get user's chat rooms", userId);
         List<ChatRoomResponse> response = chatRoomService.getUserChatRooms(userId);
         return ResponseEntity.ok(response);
     }
@@ -62,7 +61,7 @@ public class ChatRoomController {
      */
     @GetMapping("/user/{userId}/unread")
     public ResponseEntity<List<ChatRoomResponse>> getChatRoomsWithUnreadMessages(@PathVariable UUID userId) {
-        log.info("📥 GET /api/chatrooms/user/{}/unread - Get chat rooms with unread messages", userId);
+        log.info("GET /api/chatrooms/user/{}/unread - Get chat rooms with unread messages", userId);
         List<ChatRoomResponse> response = chatRoomService.getChatRoomsWithUnreadMessages(userId);
         return ResponseEntity.ok(response);
     }
@@ -72,7 +71,7 @@ public class ChatRoomController {
      */
     @GetMapping("/user/{userId}/unread-count")
     public ResponseEntity<Map<String, Long>> getTotalUnreadCount(@PathVariable UUID userId) {
-        log.info("📥 GET /api/chatrooms/user/{}/unread-count - Get total unread count", userId);
+        log.info("GET /api/chatrooms/user/{}/unread-count - Get total unread count", userId);
         Long count = chatRoomService.getTotalUnreadCount(userId);
         return ResponseEntity.ok(Map.of("totalUnreadCount", count));
     }
@@ -86,7 +85,7 @@ public class ChatRoomController {
             @RequestBody Map<String, UUID> request) {
 
         UUID userId = request.get("userId");
-        log.info("📥 PATCH /api/chatrooms/{}/read - Reset unread count: user={}", chatRoomId, userId);
+        log.info("PATCH /api/chatrooms/{}/read - Reset unread count: user={}", chatRoomId, userId);
 
         chatRoomService.resetUnreadCount(chatRoomId, userId);
         return ResponseEntity.noContent().build();

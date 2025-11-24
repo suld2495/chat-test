@@ -1,7 +1,11 @@
 package com.chat.chat.websocket.controller;
 
+import com.chat.chat.common.ai.ClaudeChatService;
+import com.chat.chat.domain.chatroom.entity.ChatRoom;
+import com.chat.chat.domain.chatroom.service.ChatRoomService;
 import com.chat.chat.domain.message.dto.MessageResponse;
 import com.chat.chat.domain.message.dto.MessageSendRequest;
+import com.chat.chat.domain.message.entity.MessageType;
 import com.chat.chat.domain.message.service.MessageService;
 import com.chat.chat.domain.user.entity.User;
 import com.chat.chat.domain.user.service.UserService;
@@ -29,7 +33,9 @@ public class WebSocketChatController {
 
     private final SimpMessageSendingOperations messagingTemplate;
     private final MessageService messageService;
+    private final ChatRoomService chatRoomService;
     private final UserService userService;
+    private final ClaudeChatService claudeChatService;
 
     /**
      * 채팅 메시지 전송
@@ -41,20 +47,23 @@ public class WebSocketChatController {
             @DestinationVariable UUID chatRoomId,
             @Payload ChatMessageDto message) {
 
-        log.info("📨 WebSocket message received: chatRoom={}, sender={}, type={}",
-                chatRoomId, message.getSenderId(), message.getChatMessageType());
+        ChatMessageDto.ChatMessageType chatMessageType = message.getChatMessageType() != null
+                ? message.getChatMessageType()
+                : ChatMessageDto.ChatMessageType.CHAT; // 기본값 방어
+
+        log.info("WebSocket message received: chatRoom={}, sender={}, type={}",
+                chatRoomId, message.getSenderId(), chatMessageType);
 
         try {
-            // 메시지 타입에 따른 처리
-            switch (message.getChatMessageType()) {
+            switch (chatMessageType) {
                 case CHAT -> handleChatMessage(chatRoomId, message);
                 case JOIN -> handleJoinMessage(chatRoomId, message);
                 case LEAVE -> handleLeaveMessage(chatRoomId, message);
                 case READ -> handleReadMessage(chatRoomId, message);
-                default -> log.warn("⚠️ Unknown message type: {}", message.getChatMessageType());
+                default -> log.warn("Unknown message type: {}", chatMessageType);
             }
         } catch (Exception e) {
-            log.error("❌ Error processing WebSocket message: {}", e.getMessage(), e);
+            log.error("Error processing WebSocket message: {}", e.getMessage(), e);
         }
     }
 
@@ -62,20 +71,20 @@ public class WebSocketChatController {
      * 일반 채팅 메시지 처리
      */
     private void handleChatMessage(UUID chatRoomId, ChatMessageDto message) {
-        // 데이터베이스에 메시지 저장
+        MessageType messageType = message.getMessageType() != null
+                ? message.getMessageType()
+                : MessageType.TEXT; // WebSocket 클라이언트가 비워도 TEXT로 저장
+
         MessageSendRequest request = MessageSendRequest.builder()
                 .chatRoomId(chatRoomId)
                 .senderId(message.getSenderId())
                 .content(message.getContent())
-                .messageType(message.getMessageType())
+                .messageType(messageType)
                 .build();
 
         MessageResponse savedMessage = messageService.sendMessage(request);
-
-        // 발신자 정보 조회
         User sender = userService.findUserById(message.getSenderId());
 
-        // 저장된 메시지 정보로 WebSocket 메시지 생성
         ChatMessageDto responseMessage = ChatMessageDto.builder()
                 .messageId(savedMessage.getId())
                 .chatRoomId(chatRoomId)
@@ -87,13 +96,14 @@ public class WebSocketChatController {
                 .chatMessageType(ChatMessageDto.ChatMessageType.CHAT)
                 .build();
 
-        // 채팅방 구독자들에게 메시지 브로드캐스트
         messagingTemplate.convertAndSend(
                 "/topic/chatroom/" + chatRoomId,
                 responseMessage
         );
 
-        log.info("✅ Chat message sent to /topic/chatroom/{}", chatRoomId);
+        log.info("Chat message sent to /topic/chatroom/{}", chatRoomId);
+
+        triggerBotResponse(chatRoomId, message, sender);
     }
 
     /**
@@ -116,7 +126,7 @@ public class WebSocketChatController {
                 joinMessage
         );
 
-        log.info("✅ Join message sent: user={}, chatRoom={}", user.getNickname(), chatRoomId);
+        log.info("Join message sent: user={}, chatRoom={}", user.getNickname(), chatRoomId);
     }
 
     /**
@@ -139,14 +149,13 @@ public class WebSocketChatController {
                 leaveMessage
         );
 
-        log.info("✅ Leave message sent: user={}, chatRoom={}", user.getNickname(), chatRoomId);
+        log.info("Leave message sent: user={}, chatRoom={}", user.getNickname(), chatRoomId);
     }
 
     /**
      * 읽음 확인 처리
      */
     private void handleReadMessage(UUID chatRoomId, ChatMessageDto message) {
-        // 모든 메시지 읽음 처리
         messageService.markAllAsRead(chatRoomId, message.getSenderId());
 
         ChatMessageDto readMessage = ChatMessageDto.builder()
@@ -161,7 +170,7 @@ public class WebSocketChatController {
                 readMessage
         );
 
-        log.info("✅ Read confirmation sent: user={}, chatRoom={}", message.getSenderId(), chatRoomId);
+        log.info("Read confirmation sent: user={}, chatRoom={}", message.getSenderId(), chatRoomId);
     }
 
     /**
@@ -173,13 +182,106 @@ public class WebSocketChatController {
             @DestinationVariable UUID chatRoomId,
             @Payload TypingNotificationDto notification) {
 
-        log.info("⌨️ Typing notification: chatRoom={}, user={}, isTyping={}",
+        log.info("Typing notification: chatRoom={}, user={}, isTyping={}",
                 chatRoomId, notification.getUserId(), notification.getIsTyping());
 
-        // 채팅방의 다른 사용자들에게 타이핑 알림 전송
         messagingTemplate.convertAndSend(
                 "/topic/chatroom/" + chatRoomId + "/typing",
                 notification
         );
+    }
+
+    /**
+     * 사용자 메시지에 대한 챗봇 응답 트리거
+     */
+    private void triggerBotResponse(UUID chatRoomId, ChatMessageDto userMessage, User sender) {
+        if (isBotUser(sender)) {
+            return;
+        }
+
+        ChatRoom chatRoom = chatRoomService.findChatRoomById(chatRoomId);
+        User botUser = resolveBotUser(chatRoom);
+        if (botUser == null) {
+            log.warn("[BOT] 챗봇 사용자를 찾을 수 없습니다: chatRoomId={}", chatRoomId);
+            return;
+        }
+
+        ClaudeChatService.ReplyResult reply = claudeChatService.requestReply(chatRoomId, userMessage.getContent());
+
+        if (reply.isHasReply()) {
+            sendBotMessage(chatRoomId, botUser, reply.getReplyText(), MessageType.TEXT);
+        }
+
+        if (reply.isLimitReached() && reply.isLimitJustReached()) {
+            sendBotMessage(
+                    chatRoomId,
+                    botUser,
+                    "이 채팅방의 챗봇 토큰 한도(" + claudeChatService.getTokenLimitPerRoom() + "토큰)를 모두 사용했습니다. 새 채팅방을 생성해 주세요.",
+                    MessageType.SYSTEM
+            );
+        }
+    }
+
+    /**
+     * 챗봇 메시지 전송 및 브로드캐스트
+     */
+    private void sendBotMessage(UUID chatRoomId, User botUser, String content, MessageType messageType) {
+        if (content == null || content.isBlank()) {
+            return;
+        }
+
+        MessageSendRequest request = MessageSendRequest.builder()
+                .chatRoomId(chatRoomId)
+                .senderId(botUser.getId())
+                .content(content)
+                .messageType(messageType)
+                .build();
+
+        MessageResponse savedMessage = messageService.sendMessage(request);
+
+        ChatMessageDto responseMessage = ChatMessageDto.builder()
+                .messageId(savedMessage.getId())
+                .chatRoomId(chatRoomId)
+                .senderId(savedMessage.getSender().getId())
+                .senderNickname(botUser.getNickname())
+                .messageType(savedMessage.getMessageType())
+                .content(savedMessage.getContent())
+                .timestamp(savedMessage.getCreatedAt())
+                .chatMessageType(ChatMessageDto.ChatMessageType.CHAT)
+                .build();
+
+        messagingTemplate.convertAndSend(
+                "/topic/chatroom/" + chatRoomId,
+                responseMessage
+        );
+
+        log.info("[BOT] Reply sent to chatRoom {} (type={}): {}", chatRoomId, messageType, content);
+    }
+
+    private User resolveBotUser(ChatRoom chatRoom) {
+        if (chatRoom == null) {
+            return null;
+        }
+        // Lazy proxy를 안전하게 처리하기 위해 ID만 꺼내고 실제 엔티티를 조회
+        UUID user1Id = chatRoom.getUser1() != null ? chatRoom.getUser1().getId() : null;
+        UUID user2Id = chatRoom.getUser2() != null ? chatRoom.getUser2().getId() : null;
+
+        if (user1Id != null) {
+            User user1 = userService.findUserById(user1Id);
+            if (isBotUser(user1)) {
+                return user1;
+            }
+        }
+        if (user2Id != null) {
+            User user2 = userService.findUserById(user2Id);
+            if (isBotUser(user2)) {
+                return user2;
+            }
+        }
+        return null;
+    }
+
+    private boolean isBotUser(User user) {
+        return user != null && user.getEmail() != null && user.getEmail().startsWith("bot-");
     }
 }

@@ -10,6 +10,7 @@ import com.chat.chat.domain.user.entity.UserStatus;
 import com.chat.chat.domain.user.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
@@ -28,6 +29,10 @@ import java.util.stream.Collectors;
 public class UserService {
 
     private final UserRepository userRepository;
+    @Value("${chat.bot-email:ai-bot@chat.local}")
+    private String botEmail;
+    @Value("${chat.bot-nickname:AI Bot}")
+    private String botNickname;
 
     /**
      * 사용자 생성 (간편 닉네임 가입 지원)
@@ -55,7 +60,7 @@ public class UserService {
                 .build();
 
         User savedUser = userRepository.save(user);
-        log.info("👤 User created: {}", savedUser.getId());
+        log.info("?? User created: {}", savedUser.getId());
 
         return UserResponse.from(savedUser);
     }
@@ -101,7 +106,7 @@ public class UserService {
                 .orElseThrow(() -> new EntityNotFoundException(ErrorCode.USER_NOT_FOUND));
 
         user.updateStatus(status);
-        log.info("✅ User status updated: {} -> {}", userId, status);
+        log.info("? User status updated: {} -> {}", userId, status);
 
         return UserResponse.from(user);
     }
@@ -122,7 +127,7 @@ public class UserService {
         }
 
         user.updateProfile(nickname, profileImageUrl);
-        log.info("🛠️ User profile updated: {}", userId);
+        log.info("??? User profile updated: {}", userId);
 
         return UserResponse.from(user);
     }
@@ -136,7 +141,26 @@ public class UserService {
                 .orElseThrow(() -> new EntityNotFoundException(ErrorCode.USER_NOT_FOUND));
 
         user.deactivate();
-        log.info("🛑 User deactivated: {}", userId);
+        log.info("?? User deactivated: {}", userId);
+    }
+
+    /**
+     * 채팅방 전용 챗봇 사용자 생성
+     */
+    @Transactional
+    public User createBotUserForChatRoom() {
+        String email = generateBotEmail();
+
+        User botUser = User.builder()
+                .id(UUID.randomUUID())
+                .email(email)
+                .nickname(botNickname)
+                .build();
+
+        User saved = userRepository.save(botUser);
+        log.info("[BOT] Dedicated bot user created: {}", saved.getId());
+
+        return saved;
     }
 
     /**
@@ -164,5 +188,14 @@ public class UserService {
         }
         String suffix = UUID.randomUUID().toString().substring(0, 8);
         return base + "-" + suffix + "@chat.local";
+    }
+
+    private String generateBotEmail() {
+        int atIndex = botEmail.indexOf("@");
+        String domain = (atIndex > -1 && atIndex < botEmail.length() - 1)
+                ? botEmail.substring(atIndex + 1)
+                : "chat.local";
+
+        return "bot-" + UUID.randomUUID() + "@" + domain;
     }
 }
